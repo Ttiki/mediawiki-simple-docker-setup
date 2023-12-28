@@ -1,0 +1,101 @@
+# MediaWiki/MySQL/PhpMyAdmin
+
+version: '3.8'
+services:
+  mediawiki:
+    image: mediawiki:1.39.5
+    restart: always
+    ports:
+      - 8080:80
+    links:
+      - database:database
+      - ftp_server:ftpserver
+    build: 
+      context: .
+    volumes:
+      - /var/www/html/
+      - ./composer.local.json:/var/www/html/composer.local.json:ro
+    # Launch the docker once to get the install setup from mediawiki (in order to get the LocalSettings.php file)
+    # Then uncomment the following line to mount the LocalSettings.php file
+    #  - ./LocalSettings.php:/var/www/html/LocalSettings.php
+      - ./dump.xml:/var/www/html/maintenance/dump.xml
+      - ./images/:/var/www/html/images/
+    network_mode: bridge
+    depends_on:
+      - database
+  pdi:
+    build: 
+        context: .
+        dockerfile: PentahoDataIntegration
+    network_mode: bridge
+    volumes:
+      - ./pdi_libs/:/pdi/data-integration/lib
+    environment:
+      - COMPOSE_CONVERT_WINDOWS_PATHS=1 
+      - DISPLAY=host.docker.internal:0.0
+    links:
+      - ftp_server:ftpserver
+      - database:database
+  database:
+    image: mariadb
+    restart: always
+    environment:
+      MARIADB_DATABASE: YOUR_DB_NAME
+      MARIADB_USER: YOUR_DB_USER
+      MARIADB_ROOT_PASSWORD: YOUR_DB_ROOT_PWD
+      
+    network_mode: bridge
+    ports:
+      - 3306:3306 
+    volumes:
+      - db:/var/lib/mariadb 
+   
+  phpmyadmin:
+    image: phpmyadmin
+    restart: always
+    ports:
+      - 8082:80
+    environment:
+      - PMA_HOST=database
+      - PMA_PORT=3306
+      - PMA_ARBITRARY=1
+      - PMA_ABSOLUTE_URI=localhost:80/pma/
+    network_mode: bridge
+    links:
+      - database:database
+    depends_on:
+      - database
+  ftp_server:
+    image: fauria/vsftpd
+    ports:
+      - "20:20"
+      - "21:21"
+      - "21100-21110:21100-21110"
+    volumes:
+      - ./Pentaho Data Integration:/home/vsftpd
+    environment:
+      - FTP_USER=YOUR_FTP_USER
+      - FTP_PASS=YOUR_FTP_PWD
+    restart: always
+    network_mode: bridge
+    
+  nginx:
+    image: nginx:latest
+    ports:
+      - 80:80
+      - 443:443
+    restart: always
+    network_mode: bridge
+    links:
+      - mediawiki:mediawiki
+      - phpmyadmin:phpmyadmin
+    volumes:
+      - ./nginx/conf/:/etc/nginx/conf.d/:ro
+      - ./certbot/www:/var/www/certbot/:ro
+      - ./certbot/conf/:/etc/nginx/ssl/:ro
+      # - /etc/ssl/certs/hub-international.crt:/etc/nginx/ssl/live/hub-international.univ-pau.fr/hub-international.crt
+      # - /etc/ssl/private.key:/etc/nginx/ssl/live/hub-international.univ-pau.fr/private.key
+      # - /etc/ssl/certs/fullchain.pem:/etc/nginx/ssl/live/hub-international.univ-pau.fr/fullchain.pem
+      - ./nginx.conf:/etc/nginx/nginx.conf
+volumes:
+  db:
